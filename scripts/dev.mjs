@@ -7,6 +7,7 @@
 //
 // Ctrl+C stops the function server but leaves the database stack running for fast
 // restarts. Run `npm run stop` to tear the whole stack down.
+import { existsSync, copyFileSync } from "node:fs";
 import { run, dockerIsRunning, FUNCTION_NAME, LOCAL_FUNCTIONS_URL } from "./lib.mjs";
 import { syncFromHeard } from "./sync-from-heard.mjs";
 
@@ -16,6 +17,21 @@ if (!dockerIsRunning()) {
       "  Start Docker Desktop (wait until the whale icon says 'running'), then retry `npm run dev`.\n",
   );
   process.exit(1);
+}
+
+const FUNCTION_ENV = "./supabase/functions/.env";
+if (!existsSync(FUNCTION_ENV)) {
+  const example = FUNCTION_ENV + ".example";
+  if (!existsSync(example)) {
+    console.error(`\n  ${FUNCTION_ENV} and ${example} are both missing — can't serve the function.\n`);
+    process.exit(1);
+  }
+  copyFileSync(example, FUNCTION_ENV);
+  console.log(
+    `> created ${FUNCTION_ENV} from .env.example.\n` +
+      "  Works out of the box except for AI features — add a provider key\n" +
+      "  (e.g. GEMINI_API_KEY=...) to that file to enable the LLM-backed paths.\n",
+  );
 }
 
 console.log("> syncing backend code from the Heard repo...");
