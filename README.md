@@ -18,8 +18,11 @@ The Supabase CLI is a dev dependency here — no global install needed.
 
 ```bash
 npm install            # fetches the Supabase CLI binary (no Docker needed yet)
+cp supabase/functions/.env.example supabase/functions/.env   # function secrets (gitignored) — add LLM keys for AI features
 npm run dev            # syncs Heard code, starts the stack, serves the function
 ```
+
+The copied `supabase/functions/.env` works out of the box for everything except the AI features (the local-dev `HEARD_API_SECRET`/`CRON_SECRET` are pre-filled). To exercise the LLM-backed paths — e.g. the GGWash importer — add a provider key (`GEMINI_API_KEY=…`, default provider is Gemini) to that file. It's gitignored, so your real keys are never committed.
 
 Then, in another terminal:
 
@@ -90,7 +93,7 @@ Review the result and remove any tables the synced Heard migrations also create 
 
 ## Configuration
 
-- `supabase/functions/.env` — secrets injected into the function. `HEARD_API_SECRET` here must match `VITE_HEARD_API_SECRET` in Heard's `.env.local` (`wire:heard` keeps them in sync). Email/SMS/LLM keys are blank so staging never sends real messages or spends money.
+- `supabase/functions/.env` — secrets injected into the function. **Gitignored** (real keys are never committed); create it on first setup with `cp supabase/functions/.env.example supabase/functions/.env`. `HEARD_API_SECRET` here must match `VITE_HEARD_API_SECRET` in Heard's `.env.local` (`wire:heard` keeps them in sync). Email/SMS/LLM keys start blank so staging never sends real messages or spends money — fill in a provider key (e.g. `GEMINI_API_KEY`) to use the AI features.
 - `supabase/config.toml` — local stack config. Email confirmations are off and the function's JWT verification is disabled (Heard does its own auth).
 
 ## Local URLs
