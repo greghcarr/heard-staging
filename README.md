@@ -16,26 +16,43 @@ The Supabase CLI is a dev dependency here — no global install needed.
 
 ## Quick start
 
-```bash
-npm install            # fetches the Supabase CLI binary (no Docker needed yet)
-cp supabase/functions/.env.example supabase/functions/.env   # function secrets (gitignored) — add LLM keys for AI features
-npm run dev            # syncs Heard code, starts the stack, serves the function
-```
+A step-by-step from a fresh clone to viewing Heard running against this local backend.
 
-The copied `supabase/functions/.env` works out of the box for everything except the AI features (the local-dev `HEARD_API_SECRET`/`CRON_SECRET` are pre-filled). To exercise the LLM-backed paths — e.g. the GGWash importer — add a provider key (`GEMINI_API_KEY=…`, default provider is Gemini) to that file. It's gitignored, so your real keys are never committed.
+### First-time setup (once)
 
-Then, in another terminal:
+1. Make sure **Docker Desktop is running**, you have **Node 18+**, and the [Heard repo](../heard) is checked out as a sibling `heard/` folder (see [Prerequisites](#prerequisites)).
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Create the function's secrets file. It's gitignored, and the local-dev `HEARD_API_SECRET` / `CRON_SECRET` are pre-filled so it works as-is. Add `GEMINI_API_KEY=…` only if you want the AI features (e.g. the GGWash importer):
+   ```bash
+   cp supabase/functions/.env.example supabase/functions/.env
+   ```
 
-```bash
-npm run wire:heard     # point Heard's .env.local at http://127.0.0.1:54321
-cd ../heard && npm run dev
-```
+### Start the backend and see it in the Heard frontend
 
-Heard now talks to your local backend. To switch back to the cloud:
+4. **Terminal 1 (this repo)** — start the local backend and leave it running. This syncs Heard's code, boots the Supabase stack, and serves the function:
+   ```bash
+   npm run dev
+   ```
+   Wait for the **`Heard staging backend is UP`** banner.
+5. **Terminal 2 (this repo)** — point the Heard frontend at the local backend, then start it:
+   ```bash
+   npm run wire:heard           # writes Heard's .env.local + patches api-client.ts (hidden from git)
+   cd ../heard && npm run dev   # starts the Heard frontend
+   ```
+6. Open **http://localhost:3000** — Heard now talks to your **local artificial backend** instead of the cloud.
 
-```bash
-npm run unwire:heard
-```
+### When you're done
+
+7. Stop the Heard frontend (`Ctrl+C` in Terminal 2), then back in this repo revert the wiring and tear the stack down:
+   ```bash
+   npm run unwire:heard   # point Heard back at the cloud
+   npm run stop           # stop the local Supabase stack
+   ```
+
+> To run Heard on **other devices** (phone, another computer), see [LAN access](#lan-access-use-heard-from-other-computersphones) below.
 
 ## LAN access (use Heard from other computers/phones)
 
