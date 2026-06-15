@@ -1,0 +1,38 @@
+# Supabase local config for the Heard staging backend.
+# Intentionally minimal: every section not listed here falls back to the CLI's
+# defaults, which keeps this file resilient across CLI version bumps.
+
+project_id = "heard-staging"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+[storage]
+enabled = true
+
+[auth]
+enabled = true
+# Heard's frontend dev server.
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173"]
+
+[auth.email]
+# Staging has no real mail provider, so don't block sign-ups on confirmation.
+enable_signup = true
+enable_confirmations = false
+
+# The Heard edge function does its own auth (X-API-Key + X-Session-Id), so the
+# Supabase gateway must NOT reject requests for missing/invalid JWTs.
+[functions.make-server-f1a393b4]
+verify_jwt = false

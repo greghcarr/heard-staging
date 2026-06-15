@@ -1,0 +1,17 @@
+node_modules/
+
+# Synced from the Heard repo by `npm run sync` — regenerated, never committed,
+# so Heard's source never lives in this repo.
+supabase/functions/make-server-f1a393b4/
+
+# Only our base schema is committed; Heard's migrations are synced in at runtime.
+supabase/migrations/*
+!supabase/migrations/00000000000000_base_schema.sql
+
+# Supabase CLI local state
+supabase/.branches/
+supabase/.temp/
+
+# Root env overrides (the function env at supabase/functions/.env IS tracked)
+/.env
+/.env.local

@@ -1,0 +1,20 @@
+{
+  "name": "heard-staging",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local artificial Supabase backend (staging environment) for the Heard app. Keeps zero code inside the Heard repo.",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "sync": "node scripts/sync-from-heard.mjs",
+    "stop": "supabase stop",
+    "status": "supabase status",
+    "db:reset": "supabase db reset",
+    "wire:heard": "node scripts/wire-heard.mjs",
+    "unwire:heard": "node scripts/unwire-heard.mjs",
+    "dump:remote": "node scripts/dump-remote-schema.mjs"
+  },
+  "devDependencies": {
+    "supabase": "^2.0.0"
+  }
+}

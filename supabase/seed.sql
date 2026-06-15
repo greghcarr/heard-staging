@@ -1,0 +1,10 @@
+-- Seed data for the Heard staging backend.
+--
+-- Runs automatically after migrations on `supabase start` / `supabase db reset`.
+-- Empty by default — staging boots as a clean slate. Add rows here (or KV
+-- entries into kv_store_f1a393b4) if you want demo rooms/users on every reset.
+--
+-- Example: a developer-enabled user in the KV store.
+-- insert into kv_store_f1a393b4 (key, value) values
+--   ('user:dev-1', '{"id":"dev-1","nickname":"Dev","isDeveloper":true,"score":0,"streak":0,"lastActive":0,"emailDigestsEnabled":false}'::jsonb)
+-- on conflict (key) do nothing;
