@@ -14,6 +14,8 @@ import {
   functionsUrl,
   detectLanIp,
   DEFAULT_LOCAL_ANON_KEY,
+  stagingBannerBlock,
+  STAGING_BANNER_BEGIN,
 } from "./lib.mjs";
 
 // Choose the host other machines / the browser will use to reach the backend.
@@ -92,6 +94,26 @@ function main() {
   // 3) Hide the api-client.ts change from git so it is never committed.
   run("git update-index --skip-worktree src/utils/api-client.ts", { cwd: heard });
   console.log("git: api-client.ts marked --skip-worktree (won't show in status)");
+
+  // 4) Inject the "staging backend" warning bar into main.tsx (idempotent), and
+  // hide it from git too. Makes it obvious at a glance that the frontend is
+  // pointed at this local stack rather than production.
+  const mainPath = path.join(heard, "src", "main.tsx");
+  let main = readFileSync(mainPath, "utf8");
+  if (main.includes(STAGING_BANNER_BEGIN)) {
+    console.log("main.tsx staging banner already present");
+  } else {
+    // Match the file's own line endings and leave the existing bytes untouched
+    // (just append a blank line + the block) so `unwire:heard` can restore it
+    // byte-for-byte and it never shows up as modified in git.
+    const eol = main.includes("\r\n") ? "\r\n" : "\n";
+    const sep = main.endsWith(eol) ? eol : eol + eol;
+    main = main + sep + stagingBannerBlock(eol);
+    writeFileSync(mainPath, main);
+    console.log("injected staging banner into src/main.tsx");
+  }
+  run("git update-index --skip-worktree src/main.tsx", { cwd: heard });
+  console.log("git: main.tsx marked --skip-worktree (won't show in status)");
 
   console.log(`\nHeard is wired to the local backend at ${url}`);
   if (host !== "127.0.0.1") {

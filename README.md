@@ -4,7 +4,9 @@ A local **artificial Supabase backend** for the [Heard](../heard) app — a self
 
 It runs Heard's **real** edge function (`make-server-f1a393b4`) unmodified against a local Supabase stack (Postgres + Auth + Storage + edge runtime), all in Docker via the Supabase CLI. Heard's repo stays the single source of truth: this project *syncs* Heard's function code and migrations on every `npm run dev` and keeps **zero** Heard code committed here.
 
-Flipping Heard between the cloud backend and this one is a single command (`npm run wire:heard` / `npm run unwire:heard`), and the only change it makes inside the Heard repo is one uncommitted line + a gitignored `.env.local`.
+Flipping Heard between the cloud backend and this one is a single command (`npm run wire:heard` / `npm run unwire:heard`), and the only changes it makes inside the Heard repo are two uncommitted edits (`api-client.ts` + a `main.tsx` staging banner) and a gitignored `.env.local` — all reverted byte-for-byte by `unwire:heard`.
+
+When wired to this backend, Heard shows a fixed **"⚠ STAGING BACKEND"** warning bar across the top of every screen, so it's never mistaken for production. See [Staging banner](#staging-banner) below.
 
 ## Prerequisites
 
@@ -88,9 +90,17 @@ Other devices then open `http://<LAN-IP>:3000` (Heard's Vite config pins port 30
 | `npm run stop` | Stop the whole Supabase stack |
 | `npm run status` | Show local URLs and keys |
 | `npm run db:reset` | Drop & recreate the DB, re-run migrations + `seed.sql` |
-| `npm run wire:heard` | Point Heard at this backend (writes `.env.local`, patches `api-client.ts`, hides it from git) |
-| `npm run unwire:heard` | Revert the Heard-side wiring |
+| `npm run wire:heard` | Point Heard at this backend (writes `.env.local`, patches `api-client.ts`, injects the [staging banner](#staging-banner) into `main.tsx`, hides both from git) |
+| `npm run unwire:heard` | Revert the Heard-side wiring (restores `api-client.ts` + `main.tsx` byte-for-byte) |
 | `npm run dump:remote` | Capture the authoritative prod schema (see below) |
+
+## Staging banner
+
+So a staging frontend is never mistaken for production, `wire:heard` injects a fixed warning bar — **⚠ STAGING BACKEND · `<host>` — not production data** — across the top of every Heard screen. `unwire:heard` removes it.
+
+- **How it's injected:** a small self-contained block is appended to Heard's `src/main.tsx` (and hidden via `git update-index --skip-worktree`, exactly like the `api-client.ts` override). It's plain DOM — no React/JSX or Heard CSS dependencies — so it survives changes to Heard's component tree. `unwire:heard` strips it and restores `main.tsx` byte-for-byte, so it never appears in `git status`.
+- **What triggers it:** the bar renders only when `import.meta.env.VITE_SUPABASE_FUNCTIONS_URL` is set, which is the env var `wire:heard` writes to point Heard at this stack. So it shows up **iff** the frontend is talking to this local backend — and shows the actual host (`127.0.0.1:54321` or your LAN IP).
+- **Removing it manually:** if you ever need to, just delete the block between the `/* heard-staging:banner:begin … */` and `/* heard-staging:banner:end */` markers in `main.tsx`, or run `npm run unwire:heard`.
 
 ## Schema
 

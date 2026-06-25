@@ -57,6 +57,62 @@ export function detectLanIp() {
 export const DEFAULT_LOCAL_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
 
+// A fixed "staging backend" warning bar injected into Heard's `src/main.tsx` by
+// wire:heard and stripped by unwire:heard (and hidden from git via
+// --skip-worktree, so it is never committed). It is plain DOM — no React/JSX or
+// Heard CSS dependencies — so it survives changes to Heard's component tree, and
+// is gated on VITE_SUPABASE_FUNCTIONS_URL, which only wire:heard ever sets. That
+// means the bar appears iff the frontend is pointed at this local stack.
+export const STAGING_BANNER_BEGIN =
+  "/* heard-staging:banner:begin (injected by wire:heard — do not commit) */";
+export const STAGING_BANNER_END = "/* heard-staging:banner:end */";
+
+export function stagingBannerBlock(eol = "\n") {
+  return [
+    STAGING_BANNER_BEGIN,
+    "{",
+    "  const __stagingUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;",
+    '  if (__stagingUrl && typeof document !== "undefined") {',
+    '    let __host = "local Supabase";',
+    "    try { __host = new URL(__stagingUrl).host; } catch {}",
+    '    const __b = document.createElement("div");',
+    '    __b.setAttribute("data-heard-staging-banner", "");',
+    "    __b.textContent = `⚠  STAGING BACKEND · ${__host} — not production data`;",
+    "    Object.assign(__b.style, {",
+    '      position: "fixed", top: "0", left: "0", right: "0", zIndex: "2147483647",',
+    '      padding: "6px 12px", textAlign: "center", pointerEvents: "none",',
+    '      font: "600 13px/1.4 system-ui, -apple-system, Segoe UI, sans-serif",',
+    '      letterSpacing: "0.04em", color: "#fff",',
+    '      background: "repeating-linear-gradient(45deg,#b45309 0 12px,#92400e 12px 24px)",',
+    '      boxShadow: "0 1px 4px rgba(0,0,0,.35)",',
+    "    });",
+    "    const __mount = () => {",
+    "      document.body.prepend(__b);",
+    "      document.body.style.paddingTop = `${__b.offsetHeight}px`;",
+    "    };",
+    "    if (document.body) __mount();",
+    '    else addEventListener("DOMContentLoaded", __mount, { once: true });',
+    "  }",
+    "}",
+    STAGING_BANNER_END,
+  ].join(eol) + eol;
+}
+
+// Remove the injected banner block from `src` and restore it to how it looked
+// before injection (so the file matches HEAD again and leaves no git trace).
+// Pure string slicing — robust against regex-significant chars in the markers.
+export function stripStagingBanner(src) {
+  const start = src.indexOf(STAGING_BANNER_BEGIN);
+  const endMarker = src.indexOf(STAGING_BANNER_END);
+  if (start === -1 || endMarker === -1) return { src, removed: false };
+  const eol = src.includes("\r\n") ? "\r\n" : "\n";
+  const end = endMarker + STAGING_BANNER_END.length;
+  const before = src.slice(0, start).replace(/\s*$/, "");
+  const after = src.slice(end).replace(/^\s*/, "");
+  const out = before + eol + after;
+  return { src: out.endsWith(eol) ? out : out + eol, removed: true };
+}
+
 // Run a command, inheriting stdio. Returns the exit code.
 export function run(command, opts = {}) {
   const result = spawnSync(command, {

@@ -3,7 +3,7 @@
 // Heard talks to the cloud backend again.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { heardRepoPath, run } from "./lib.mjs";
+import { heardRepoPath, run, stripStagingBanner } from "./lib.mjs";
 
 const ORIGINAL_LINE =
   "export const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-f1a393b4`;";
@@ -31,6 +31,16 @@ function main() {
   // 2) Stop hiding it from git.
   run("git update-index --no-skip-worktree src/utils/api-client.ts", { cwd: heard });
   console.log("git: api-client.ts no longer --skip-worktree");
+
+  // 2b) Strip the injected staging banner from main.tsx and unhide it.
+  const mainPath = path.join(heard, "src", "main.tsx");
+  const { src: restored, removed } = stripStagingBanner(readFileSync(mainPath, "utf8"));
+  if (removed) {
+    writeFileSync(mainPath, restored);
+    console.log("removed staging banner from src/main.tsx");
+  }
+  run("git update-index --no-skip-worktree src/main.tsx", { cwd: heard });
+  console.log("git: main.tsx no longer --skip-worktree");
 
   // 3) Comment out the local vars in .env.local so prod values (if any) win.
   const envPath = path.join(heard, ".env.local");
