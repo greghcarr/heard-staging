@@ -115,7 +115,7 @@ npm run seed:posts
 ```
 
 - The copied rows land in **`supabase/seed-prod-posts.sql`** (gitignored — it's real user content). `seed:posts` re-applies that file, so your posts survive a DB reset without re-hitting prod.
-- Copied rooms are forced **feed-visible**: each is set `isActive: true` and not a test/event room, and a **public community stub** is created for its `subHeard` (the feed hides rooms whose community is missing or private). Pass `--no-activate` to copy rooms verbatim — but note they likely won't appear in the feed without the activation + community stub.
+- Copied rooms are forced **feed-visible**: each is set `isActive: true` and not a test/event room, and a **public community stub** is created for its `subHeard` (the feed hides rooms whose community is missing or private). A room copied **without any community** is filed under a public `staging-imports` fallback community so it still shows in the feed. Pass `--no-activate` to copy rooms verbatim — but note they likely won't appear in the feed without the activation + community stub.
 - The local stack must be running (`npm run dev`) for the apply step. Requires the `pg` dev dependency (installed via `npm install`).
 
 ### Without a DB connection string (`--via-api`)

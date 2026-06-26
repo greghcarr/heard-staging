@@ -125,10 +125,16 @@ function sqlInsertChunks(rows, chunkSize = 100) {
   return chunks.join("\n\n");
 }
 
+// Community-less rooms are hidden from the feed (filterFeedRooms drops any room
+// without a subHeard), so rooms copied without one are filed under this public
+// fallback community to keep them browsable.
+const FALLBACK_COMMUNITY = "staging-imports";
+
 // Force a copied room to be browsable in staging's feed: active, not a test room,
-// not tied to an event (mirrors the filters in debate-api getActiveRooms/getAllRealDebates).
+// not tied to an event (mirrors the filters in debate-api getActiveRooms/getAllRealDebates),
+// and in a community (its own, or the public fallback) so the feed doesn't hide it.
 function makeVisible(value) {
-  return { ...value, isActive: true, isTestRoom: false, eventId: null };
+  return { ...value, isActive: true, isTestRoom: false, eventId: null, subHeard: value.subHeard || FALLBACK_COMMUNITY };
 }
 
 // Copied rooms reference a community via `subHeard`, but the feed hides any room
