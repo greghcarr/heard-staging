@@ -114,12 +114,12 @@ npm run seed:posts
 ```
 
 - The copied rows land in **`supabase/seed-prod-posts.sql`** (gitignored — it's real user content). `seed:posts` re-applies that file, so your posts survive a DB reset without re-hitting prod.
-- Copied rooms are forced **feed-visible** (`isActive: true`, not a test/event room) so they show up in staging. Pass `--no-activate` to copy them verbatim instead.
+- Copied rooms are forced **feed-visible**: each is set `isActive: true` and not a test/event room, and a **public community stub** is created for its `subHeard` (the feed hides rooms whose community is missing or private). Pass `--no-activate` to copy rooms verbatim — but note they likely won't appear in the feed without the activation + community stub.
 - The local stack must be running (`npm run dev`) for the apply step. Requires the `pg` dev dependency (installed via `npm install`).
 
 ### Without a DB connection string (`--via-api`)
 
-If you don't have the Postgres connection string but do have the production **`HEARD_API_SECRET`**, `--via-api` pulls the same posts over HTTP from prod's edge function instead. It calls `/rooms/active` and `/room/:id` (the room endpoint returns each statement's `voters` map, which is enough to rebuild the votes). Pass the prod **function URL** and the secret (env var keeps it off the command line); add the public anon key if the prod gateway enforces JWT:
+If you don't have the Postgres connection string but do have the production **`HEARD_API_SECRET`**, `--via-api` pulls the same posts over HTTP from prod's edge function instead. The room endpoints are session-protected, so the script first mints a throwaway anonymous session via `/user/anonymous` (its one non-read side effect — a single test anon user on prod), then calls `/rooms/active` and `/room/:id` (the room endpoint returns each statement's `voters` map, which is enough to rebuild the votes). Pass the prod **function URL** and the secret (env var keeps it off the command line); add the public anon key if the prod gateway enforces JWT:
 
 ```bash
 # Discover (lists the most-voted active rooms):
@@ -133,7 +133,7 @@ HEARD_API_SECRET=<secret> npm run copy:posts -- --via-api \
 ```
 
 - **All user IDs are anonymized** in this mode — voters, statement authors, room host/participants are replaced with stable synthetic `anon-N` IDs (counts and vote types are preserved exactly). No real user IDs reach staging, unlike the DB-string mode which copies them verbatim.
-- **Discovery is capped at the ~20 active rooms** `/rooms/active` returns; `--rooms <ids>` can still copy *any* room by ID (active or ended). Same gitignored seed file + `seed:posts` re-apply as above.
+- **Discovery is limited** to the ≤20 public-community rooms `/rooms/active` returns (the feed filters to community posts once a session is attached); `--rooms <ids>` can still copy *any* room by ID, active or ended. Same gitignored seed file + `seed:posts` re-apply as above.
 
 ## Staging banner
 

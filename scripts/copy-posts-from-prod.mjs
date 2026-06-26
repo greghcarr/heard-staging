@@ -21,13 +21,15 @@
 //   npm run seed:posts
 //
 // API mode (--via-api): pull from prod's edge function over HTTP using
-// HEARD_API_SECRET instead of a DB connection string. The room endpoint returns
-// each statement's `voters` map (userId -> voteType), which we use to rebuild the
-// vote rows — with the voter IDs ANONYMIZED (synthetic IDs; counts/vote types are
-// preserved exactly, no real user IDs reach staging). Discovery via the API is
-// limited to the <=20 active rooms /rooms/active returns, but --rooms fetches any
-// room by ID. Needs the prod function URL + HEARD_API_SECRET (+ the public anon
-// key if the prod gateway enforces JWT):
+// HEARD_API_SECRET instead of a DB connection string. The room endpoints are
+// session-protected, so we first mint a throwaway anonymous session via
+// /user/anonymous (the one non-read side effect: a single test anon user/session
+// on prod). The room endpoint returns each statement's `voters` map
+// (userId -> voteType), which we use to rebuild the vote rows — with all user IDs
+// ANONYMIZED (synthetic IDs; counts/vote types preserved exactly, no real user IDs
+// reach staging). Discovery is limited to the <=20 public-community rooms
+// /rooms/active returns, but --rooms fetches any room by ID. Needs the prod
+// function URL + HEARD_API_SECRET (+ the public anon key if the gateway enforces JWT):
 //   HEARD_API_SECRET=<secret> npm run copy:posts -- --via-api \
 //     "https://<ref>.supabase.co/functions/v1/make-server-f1a393b4" \
 //     --anon-key <public-anon-key> --rooms <roomId1>,<roomId2>
@@ -129,6 +131,21 @@ function makeVisible(value) {
   return { ...value, isActive: true, isTestRoom: false, eventId: null };
 }
 
+// Copied rooms reference a community via `subHeard`, but the feed hides any room
+// whose community isn't present locally (feed-utils filterFeedRooms drops it when
+// the community is missing or private). So for each referenced community, emit a
+// PUBLIC stub — that's what makes the copied posts actually show up in staging.
+function communityStubRows(rows) {
+  const names = new Set();
+  for (const r of rows) {
+    if (r.key.startsWith("room:") && r.value && r.value.subHeard) names.add(r.value.subHeard);
+  }
+  return [...names].map((name) => ({
+    key: `subheard:${name}`,
+    value: { name, adminId: "staging-seed", isPrivate: false, hostOnlyPosting: false },
+  }));
+}
+
 // ── modes ────────────────────────────────────────────────────────────────────
 async function discover(prodUrl, limit) {
   const sql = `
@@ -205,11 +222,12 @@ async function copyRooms(prodUrl, roomIds, activate) {
 }
 
 function summarize(rows) {
-  const counts = { room: 0, statement: 0, vote: 0 };
+  const counts = { room: 0, statement: 0, vote: 0, community: 0 };
   for (const r of rows) {
     if (r.key.startsWith("room:")) counts.room++;
     else if (r.key.startsWith("statement:")) counts.statement++;
     else if (r.key.startsWith("vote:")) counts.vote++;
+    else if (r.key.startsWith("subheard:")) counts.community++;
   }
   return counts;
 }
@@ -229,18 +247,18 @@ async function writeAndApply(rows, roomsLabel, opts, note = "") {
   const header =
     "-- Posts copied from production by `npm run copy:posts`.\n" +
     `-- Rooms: ${roomsLabel}\n` +
-    `-- ${counts.room} room(s), ${counts.statement} statement(s), ${counts.vote} vote(s).${note ? " " + note : ""}\n` +
+    `-- ${counts.room} room(s), ${counts.statement} statement(s), ${counts.vote} vote(s), ` +
+    `${counts.community} public community stub(s).${note ? " " + note : ""}\n` +
     "-- Gitignored (real user content). Re-apply with `npm run seed:posts`.\n\n";
   writeFileSync(SEED_FILE, header + sqlInsertChunks(rows) + "\n");
   console.log(`> wrote ${SEED_FILE}`);
   try {
     await applySeedFile(localDbUrl(opts.local));
   } catch (e) {
-    console.error(
-      `\nWrote the seed file but couldn't apply it to local:\n  ${e.message}\n` +
+    throw new Error(
+      `Wrote the seed file but couldn't apply it to local:\n  ${e.message}\n` +
         "Is the stack up (`npm run dev`)? You can re-apply anytime with `npm run seed:posts`.",
     );
-    process.exit(1);
   }
   return counts;
 }
@@ -252,26 +270,46 @@ function normalizeApiBase(url) {
   return u;
 }
 
-async function apiGet(base, routePath, secret, anonKey) {
+async function apiFetch(base, routePath, { secret, anonKey, sessionId, method = "GET", body } = {}) {
   const headers = { "X-API-Key": secret, "Content-Type": "application/json" };
   if (anonKey) headers["Authorization"] = `Bearer ${anonKey}`;
-  const res = await fetch(`${base}${routePath}`, { headers });
+  if (sessionId) headers["X-Session-Id"] = sessionId;
+  const res = await fetch(`${base}${routePath}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
   const text = await res.text();
-  let body;
+  let parsed;
   try {
-    body = JSON.parse(text);
+    parsed = JSON.parse(text);
   } catch {
-    body = text;
+    parsed = text;
   }
   if (!res.ok) {
-    const msg = (body && body.error) || res.statusText || `HTTP ${res.status}`;
+    const msg = (parsed && parsed.error) || res.statusText || `HTTP ${res.status}`;
     const hint =
       res.status === 401
-        ? "\n  (401 — check HEARD_API_SECRET; if the prod gateway enforces JWT, also pass --anon-key / set SUPABASE_ANON_KEY.)"
+        ? "\n  (401 — check HEARD_API_SECRET; if the gateway enforces JWT, also pass --anon-key / set SUPABASE_ANON_KEY.)"
         : "";
-    throw new Error(`GET ${routePath} -> ${res.status} ${msg}${hint}`);
+    throw new Error(`${method} ${routePath} -> ${res.status} ${msg}${hint}`);
   }
-  return body;
+  return parsed;
+}
+
+// The room endpoints are session-protected, but /user/anonymous is not. Mint a
+// throwaway anonymous session (flagged as a test user via environment != prod) so
+// our subsequent reads are authorized. NOTE: this writes one anon user + session
+// to prod — the only non-read side effect of API mode.
+async function bootstrapSession(base, secret, anonKey) {
+  const res = await apiFetch(base, "/user/anonymous", {
+    secret,
+    anonKey,
+    method: "POST",
+    body: { environment: "staging-copy-tool", fingerprint: "heard-staging-copy", userAgent: "heard-staging-copy", webdriver: false },
+  });
+  if (!res || !res.sessionId) throw new Error("Could not create an anonymous session via /user/anonymous.");
+  return res.sessionId;
 }
 
 const totalVotesOf = (statements) =>
@@ -295,7 +333,8 @@ async function mapPool(items, limit, fn) {
 }
 
 async function discoverViaApi(base, secret, anonKey, limit) {
-  const { rooms } = await apiGet(base, "/rooms/active", secret, anonKey);
+  const sessionId = await bootstrapSession(base, secret, anonKey);
+  const { rooms } = await apiFetch(base, "/rooms/active", { secret, anonKey, sessionId });
   if (!rooms || !rooms.length) {
     console.log("No active rooms returned by /rooms/active.");
     return;
@@ -303,7 +342,7 @@ async function discoverViaApi(base, secret, anonKey, limit) {
   console.log(`> fetching vote totals for ${rooms.length} active room(s)...`);
   const detailed = await mapPool(rooms, 6, async (room) => {
     try {
-      const { statements } = await apiGet(base, `/room/${room.id}`, secret, anonKey);
+      const { statements } = await apiFetch(base, `/room/${room.id}`, { secret, anonKey, sessionId });
       return { id: room.id, topic: room.topic, statements: statements.length, votes: totalVotesOf(statements), active: room.isActive };
     } catch {
       return { id: room.id, topic: room.topic, statements: 0, votes: 0, active: room.isActive };
@@ -311,7 +350,7 @@ async function discoverViaApi(base, secret, anonKey, limit) {
   });
   detailed.sort((a, b) => b.votes - a.votes);
   const top = detailed.slice(0, limit);
-  console.log(`\nMost-voted of the ${rooms.length} active rooms (the API caps /rooms/active at 20):\n`);
+  console.log(`\nMost-voted of the ${rooms.length} feed rooms /rooms/active returned (≤20, public-community rooms only):\n`);
   console.log("  votes  stmts  active  topic / room_id");
   console.log("  -----  -----  ------  ----------------------------------------");
   for (const r of top) {
@@ -349,12 +388,13 @@ async function copyRoomsViaApi(base, secret, anonKey, roomIds, activate) {
     return s;
   };
 
+  const sessionId = await bootstrapSession(base, secret, anonKey);
   const rows = [];
   const missing = [];
   for (const roomId of roomIds) {
     let data;
     try {
-      data = await apiGet(base, `/room/${roomId}`, secret, anonKey);
+      data = await apiFetch(base, `/room/${roomId}`, { secret, anonKey, sessionId });
     } catch (e) {
       console.warn(`!! ${roomId}: ${e.message}`);
       missing.push(roomId);
@@ -420,8 +460,10 @@ async function main() {
     if (missing.length) console.warn(`!! could not fetch: ${missing.join(", ")}`);
     if (!rows.length) {
       console.error("Nothing to copy. Check the room IDs (run --via-api with no --rooms to list candidates).");
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
+    rows.push(...communityStubRows(rows)); // make each room's community exist + public so the feed shows it
     const counts = await writeAndApply(rows, opts.rooms.join(", "), opts, `All user IDs anonymized (${anonCount} synthetic users).`);
     console.log(
       `\nDone — ${counts.room} post(s) with ${counts.vote} anonymized votes are now in your local stack.` +
@@ -457,6 +499,7 @@ async function main() {
     console.error("Nothing to copy. Check the room IDs (run discover mode to list them).");
     process.exit(1);
   }
+  rows.push(...communityStubRows(rows)); // make each room's community exist + public so the feed shows it
   const counts = await writeAndApply(rows, opts.rooms.join(", "), opts);
   console.log(
     `\nDone — ${counts.room} post(s) with ${counts.vote} votes are now in your local stack.` +
@@ -466,6 +509,8 @@ async function main() {
 }
 
 main().catch((e) => {
+  // Set exitCode rather than process.exit() so pending fetch (undici) sockets close
+  // cleanly — calling process.exit() mid-teardown triggers a libuv assertion on Windows.
   console.error("\n" + (e?.message || e) + "\n");
-  process.exit(1);
+  process.exitCode = 1;
 });
