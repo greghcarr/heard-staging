@@ -93,6 +93,47 @@ Other devices then open `http://<LAN-IP>:3000` (Heard's Vite config pins port 30
 | `npm run wire:heard` | Point Heard at this backend (writes `.env.local`, patches `api-client.ts`, injects the [staging banner](#staging-banner) into `main.tsx`, hides both from git) |
 | `npm run unwire:heard` | Revert the Heard-side wiring (restores `api-client.ts` + `main.tsx` byte-for-byte) |
 | `npm run dump:remote` | Capture the authoritative prod schema (see below) |
+| `npm run copy:posts` | Copy real posts (with their votes) from prod into local ([see below](#copying-posts-from-production)) |
+| `npm run seed:posts` | Re-apply the copied posts to local (e.g. after `db:reset`) — no prod needed |
+
+## Copying posts from production
+
+To populate staging with real posts that already have lots of votes, `copy:posts` pulls them straight from the production DB. In Heard, a "post" is a debate room: `room:<id>` plus its `statement:<roomId>:*` takes, all in the `kv_store_f1a393b4` JSONB table. The vote counts the UI shows are **recomputed live from individual `vote:<statementId>:*` rows**, so the script copies room + statements + votes together (copying only the room would show zero votes). It does **not** copy `user:` rows — no emails/phones come across, only the opaque user IDs already embedded in votes/authorship.
+
+You need a **read-only production DB connection string** (Supabase dashboard → Project Settings → Database → Connection string). Run it in your own terminal so the credential never touches this repo:
+
+```bash
+# 1) See the most-voted posts in prod (read-only):
+npm run copy:posts -- "postgresql://postgres:[PWD]@db.<ref>.supabase.co:5432/postgres"
+
+# 2) Copy the ones you want — writes a gitignored seed file AND loads them into local:
+npm run copy:posts -- "postgresql://..." --rooms <roomId1>,<roomId2>
+
+# 3) Later (e.g. after `npm run db:reset`) re-apply them — no prod connection needed:
+npm run seed:posts
+```
+
+- The copied rows land in **`supabase/seed-prod-posts.sql`** (gitignored — it's real user content). `seed:posts` re-applies that file, so your posts survive a DB reset without re-hitting prod.
+- Copied rooms are forced **feed-visible** (`isActive: true`, not a test/event room) so they show up in staging. Pass `--no-activate` to copy them verbatim instead.
+- The local stack must be running (`npm run dev`) for the apply step. Requires the `pg` dev dependency (installed via `npm install`).
+
+### Without a DB connection string (`--via-api`)
+
+If you don't have the Postgres connection string but do have the production **`HEARD_API_SECRET`**, `--via-api` pulls the same posts over HTTP from prod's edge function instead. It calls `/rooms/active` and `/room/:id` (the room endpoint returns each statement's `voters` map, which is enough to rebuild the votes). Pass the prod **function URL** and the secret (env var keeps it off the command line); add the public anon key if the prod gateway enforces JWT:
+
+```bash
+# Discover (lists the most-voted active rooms):
+HEARD_API_SECRET=<secret> npm run copy:posts -- --via-api \
+  "https://<ref>.supabase.co/functions/v1/make-server-f1a393b4" --anon-key <public-anon-key>
+
+# Copy specific rooms:
+HEARD_API_SECRET=<secret> npm run copy:posts -- --via-api \
+  "https://<ref>.supabase.co/functions/v1/make-server-f1a393b4" --anon-key <public-anon-key> \
+  --rooms <roomId1>,<roomId2>
+```
+
+- **All user IDs are anonymized** in this mode — voters, statement authors, room host/participants are replaced with stable synthetic `anon-N` IDs (counts and vote types are preserved exactly). No real user IDs reach staging, unlike the DB-string mode which copies them verbatim.
+- **Discovery is capped at the ~20 active rooms** `/rooms/active` returns; `--rooms <ids>` can still copy *any* room by ID (active or ended). Same gitignored seed file + `seed:posts` re-apply as above.
 
 ## Staging banner
 

@@ -16,3 +16,8 @@ supabase/.temp/
 /.env
 /.env.local
 supabase/functions/.env
+
+# Posts copied from the production DB by `npm run copy:posts` — real user content
+# (topics, statement text, voter IDs), so it's never committed. Re-apply locally
+# with `npm run seed:posts`.
+supabase/seed-prod-posts.sql

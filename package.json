@@ -12,9 +12,12 @@
     "db:reset": "supabase db reset",
     "wire:heard": "node scripts/wire-heard.mjs",
     "unwire:heard": "node scripts/unwire-heard.mjs",
-    "dump:remote": "node scripts/dump-remote-schema.mjs"
+    "dump:remote": "node scripts/dump-remote-schema.mjs",
+    "copy:posts": "node scripts/copy-posts-from-prod.mjs",
+    "seed:posts": "node scripts/copy-posts-from-prod.mjs --apply"
   },
   "devDependencies": {
+    "pg": "^8.11.0",
     "supabase": "^2.0.0"
   }
 }
