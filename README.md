@@ -95,6 +95,7 @@ Other devices then open `http://<LAN-IP>:3000` (Heard's Vite config pins port 30
 | `npm run dump:remote` | Capture the authoritative prod schema (see below) |
 | `npm run copy:posts` | Copy real posts (with their votes) from prod into local ([see below](#copying-posts-from-production)) |
 | `npm run seed:posts` | Re-apply the copied posts to local (e.g. after `db:reset`) — no prod needed |
+| `npm run import:polis` | Import sample Polis conversations as posts ([see below](#importing-sample-polis-data)) — great for testing "Ask the data" |
 
 ## Copying posts from production
 
@@ -134,6 +135,23 @@ HEARD_API_SECRET=<secret> npm run copy:posts -- --via-api \
 
 - **All user IDs are anonymized** in this mode — voters, statement authors, room host/participants are replaced with stable synthetic `anon-N` IDs (counts and vote types are preserved exactly). No real user IDs reach staging, unlike the DB-string mode which copies them verbatim.
 - **Discovery is limited** to the ≤20 public-community rooms `/rooms/active` returns (the feed filters to community posts once a session is attached); `--rooms <ids>` can still copy *any* room by ID, active or ended. Same gitignored seed file + `seed:posts` re-apply as above.
+
+## Importing sample Polis data
+
+Need posts with lots of statements and clustered votes (e.g. to test **"Ask the data"** / opinion analysis)? `import:polis` pulls real conversations from the [Computational Democracy Project's open datasets](https://github.com/compdemocracy/openData) and imports them as Heard posts. It drives Heard's own `/import-polis` endpoint, which builds dummy test users, imports the room/statements/votes, **and recomputes opinion clusters** — so the imported rooms are immediately analysable.
+
+```bash
+npm run dev                                   # local stack must be running
+npm run import:polis -- brexit-consensus      # one conversation
+npm run import:polis -- american-assembly.bowling-green scoop-hivemind.biodiversity
+npm run import:polis -- brexit-consensus --dry-run    # validate + show counts, import nothing
+```
+
+- All users are **dummy test users** the endpoint generates; no real data is involved.
+- Imported rooms are filed under a public **`polis-samples`** community (created automatically) so they show in the feed. Override with `--subheard <name>`.
+- The CSVs are **reindexed** before import: real openData lists comments in reverse `comment-id` order while the vote matrix is keyed by `comment-id`, so the script re-aligns them (statement row *i* ↔ vote column *i*).
+- **Size caps** (`--max-statements`, default 80; `--max-participants`, default 300) keep the clustering step within the edge runtime's limits — bigger imports fail with HTTP **546**. When capping statements, the **most-voted** ones are kept so clustering still has signal. Raise the caps per-dataset if your machine can handle it.
+- Browse available conversations in the openData repo; pass the directory name as the argument. Use `--from <dir>` to import local `comments.csv` + `participants-votes.csv` instead.
 
 ## Staging banner
 

@@ -14,9 +14,11 @@
     "unwire:heard": "node scripts/unwire-heard.mjs",
     "dump:remote": "node scripts/dump-remote-schema.mjs",
     "copy:posts": "node scripts/copy-posts-from-prod.mjs",
-    "seed:posts": "node scripts/copy-posts-from-prod.mjs --apply"
+    "seed:posts": "node scripts/copy-posts-from-prod.mjs --apply",
+    "import:polis": "node scripts/import-polis.mjs"
   },
   "devDependencies": {
+    "papaparse": "^5.4.1",
     "pg": "^8.11.0",
     "supabase": "^2.0.0"
   }
