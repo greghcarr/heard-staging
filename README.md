@@ -14,6 +14,7 @@ Flipping Heard between the cloud backend and this one is a single command (`npm 
 - [Prerequisites](#prerequisites)
 - [First-time setup](#first-time-setup)
 - [Everyday use](#everyday-use)
+  - [Fully shutting down](#fully-shutting-down)
 - [Command reference](#command-reference)
 - [Populating test data](#populating-test-data)
 - [The staging banner](#the-staging-banner)
@@ -100,6 +101,28 @@ npm run unwire:heard   # point Heard back at the cloud backend (reverts all Hear
 npm run stop           # tear down the local Supabase stack
 ```
 
+> ⚠️ **`Ctrl+C` is not a full shutdown.** It only stops the foreground function server — the Supabase stack keeps running in Docker (by design, for fast restarts). To fully shut everything down you **must** run `npm run stop`. See [Fully shutting down](#fully-shutting-down) for the complete picture and how to check what's still running.
+
+### Fully shutting down
+
+There are up to three moving parts. Stopping them:
+
+| Process | Started by | How to stop |
+|---|---|---|
+| **Function server** (foreground, hot-reload) | `npm run dev` (Terminal 1, this repo) | `Ctrl+C` in that terminal |
+| **Supabase stack** (≈11 Docker containers) | `npm run dev` / `supabase start` | **`npm run stop`** ← the one people forget |
+| **Heard frontend** (Vite, port 3000) | `npm run dev` in `../heard` | `Ctrl+C` in that terminal |
+
+The gotcha: `Ctrl+C` only ends the function server; the database stack lives on in Docker until you run `npm run stop`. So a "fully stopped" environment is: Ctrl+C the two dev servers **and** `npm run stop`.
+
+Check whether anything is still up:
+```bash
+npm run status                          # "...is running" if the stack is up, otherwise reports stopped services
+docker ps --filter name=heard-staging   # lists any still-running containers (empty = fully down)
+```
+
+`npm run stop` **keeps your data** (it's backed up to a Docker volume), so copied/imported posts survive into the next `npm run dev`. It does *not* delete anything — wiping the DB is a separate, explicit `npm run db:reset`. Quitting Docker Desktop afterward is optional (frees its resources but isn't needed to stop the stack).
+
 ## Command reference
 
 Quick view, then details below. All are `npm run <name>`; pass script flags after `--` (e.g. `npm run wire:heard -- --host lan`).
@@ -125,7 +148,7 @@ The main command. Verifies Docker is up, [syncs](#sync) Heard's backend code + m
 Mirrors `heard/src/supabase/functions/server` → `supabase/functions/make-server-f1a393b4` (adding the `index.ts` entrypoint, like Heard's `deploy-server.sh`) and copies `heard/supabase/migrations/*.sql` in. Runs automatically inside `dev`; run it standalone if you changed Heard's backend code and want the synced copy refreshed without restarting the stack.
 
 ### `stop`
-`supabase stop` — stops all stack containers. Data persists to the next `start` unless you also reset.
+`supabase stop` — stops **all** stack containers. This is the command for a full shutdown: `Ctrl+C` in the `dev` terminal only stops the function server and leaves the database stack running in Docker. Your data persists to the next `start` (it's backed up to a Docker volume) unless you also `db:reset`. See [Fully shutting down](#fully-shutting-down).
 
 ### `status`
 `supabase status` — prints the local API/DB/Studio URLs and the anon/service-role keys for the running stack.
@@ -339,6 +362,8 @@ localStorage.clear(); location.reload();
 **My test posts vanished.** `npm run db:reset` wipes the database. Restore copied posts with `npm run seed:posts` and Polis posts with `npm run import:polis`.
 
 **A port is already in use / weird stack state.** Another Supabase project may be running. `npm run stop` here, check `npm run status`, then `npm run dev` again.
+
+**The stack is still running even though I closed the terminal (e.g. ports 54321–54324 are held; containers up for hours).** Expected — `Ctrl+C` only stops the function server, not the Supabase Docker stack. Run `npm run stop` to fully shut it down. To see what's up: `npm run status` or `docker ps --filter name=heard-staging`. See [Fully shutting down](#fully-shutting-down).
 
 **Heard repo not found.** Set `HEARD_REPO_PATH` in this repo's `.env` (copy from `.env.example`) to the Heard checkout's path.
 
