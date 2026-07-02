@@ -161,9 +161,21 @@ Points the Heard frontend at this local backend. It:
 - writes Heard's gitignored `.env.local` (`VITE_SUPABASE_FUNCTIONS_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_HEARD_API_SECRET`, `VITE_HEARD_ENV=development`),
 - applies a one-line override to `src/utils/api-client.ts` and injects the [staging banner](#the-staging-banner) into `src/main.tsx`, then hides both with `git update-index --skip-worktree` so they never show in `git status` or get committed.
 
-Flags:
-- `--host lan` — auto-detect this machine's LAN IP (for [other devices](#using-heard-from-other-devices-lan)).
-- `--host <ip>` — use a specific address. (No flag → `127.0.0.1`, this machine only.)
+**Choosing the host.** The backend must be reachable at whatever address the browser uses, so the **golden rule is: wire to the exact host you type in the browser's address bar** (the part before `:3000`).
+
+| How you view Heard | Command | Backend host |
+|---|---|---|
+| Browser **on this machine** | `npm run wire:heard` | `127.0.0.1` (this machine only) |
+| Another device on the **same Wi-Fi/LAN** | `npm run wire:heard -- --host lan` | auto-detected LAN IP |
+| A device reaching this machine some **other way** (a specific NIC, a VPN/mesh network like Tailscale, a hostname) | `npm run wire:heard -- --host <ip-or-host>` | exactly what you pass |
+
+Use the explicit `--host <ip>` form whenever auto-detect would pick the wrong interface — e.g. this machine has several network interfaces or you connect over a VPN, so `--host lan` (which prefers the plain LAN IP) wouldn't match the address the other device actually uses.
+
+Two things to remember every time:
+- **Restart Heard's frontend after (re-)wiring.** Vite bakes the URL in at startup, so `npm run wire:heard` doesn't take effect until you `Ctrl+C` and re-run `npm run dev` in the `heard` repo.
+- **The [staging banner](#the-staging-banner) is your sanity check** — the host shown in the ⚠ bar should match your address bar. If it says `127.0.0.1` but you're on another device, you wired without the right `--host`.
+
+Wiring is **sticky** — you only re-run it when your *access method* changes (e.g. switching between "on this machine" and "from another device"). See [Using Heard from other devices](#using-heard-from-other-devices-lan) for the full LAN/remote walkthrough.
 
 ### `unwire:heard`
 Reverts everything `wire:heard` did: restores `api-client.ts` + `main.tsx` byte-for-byte, un-hides them from git, and comments out the local vars in Heard's `.env.local` so the cloud backend wins again.
@@ -254,19 +266,29 @@ So a staging frontend is never mistaken for production, `wire:heard` injects a f
 
 ## Using Heard from other devices (LAN)
 
-`127.0.0.1` resolves to each visitor's *own* machine, so for LAN access the frontend must point at this host's LAN IP and Vite must bind all interfaces:
+To open Heard on a phone or another computer, two things must change: the frontend has to point at an address the other device can reach (not `127.0.0.1`, which resolves to *each visitor's own* machine), and Vite has to bind all interfaces.
 
 ```bash
-npm run wire:heard -- --host lan        # auto-detect LAN IP (or: --host 192.168.1.160)
-cd ../heard && npm run dev -- --host    # Vite prints a "Network:" URL
+npm run wire:heard -- --host lan        # auto-detect this machine's LAN IP
+cd ../heard && npm run dev -- --host    # Vite binds 0.0.0.0 and prints a "Network:" URL
 ```
 
-Other devices open `http://<LAN-IP>:3000` (Heard's Vite config pins port 3000). The local Supabase stack already binds `0.0.0.0`, so its API on `:54321` is reachable too.
+Then the other device opens `http://<ip>:3000` (Heard's Vite config pins port 3000). The local Supabase stack already binds `0.0.0.0`, so its API on `:54321` is reachable at the same host.
 
-- **Firewall:** allow inbound TCP **3000** and **54321** (rules named `Heard dev` / `Heard staging` were added for the Private profile).
-- **IP changed (DHCP)?** Re-run `npm run wire:heard -- --host lan`.
-- **Back to host-only:** `npm run wire:heard` (no flag) → `127.0.0.1`.
-- **Secure-context caveat:** browsers block microphone/camera (`getUserMedia`) over plain HTTP on a LAN IP, so Heard's audio "rant" feature won't work on other devices without HTTPS. `localhost` on this host is exempt.
+**Which `--host` to use.** Follow the [golden rule](#wireheard): wire to the exact host the other device uses in its address bar.
+- Same Wi-Fi/LAN → `--host lan` auto-detects the right IP.
+- Reaching this machine another way (a VPN/mesh network such as Tailscale, a second network interface, or a hostname) → pass it explicitly: `npm run wire:heard -- --host <that-address>`. Auto-detect prefers the plain LAN IP and generally won't pick a VPN/mesh address, so you must name it.
+
+Whichever you use, **restart Heard's frontend** afterward (`Ctrl+C` then `npm run dev -- --host`) — Vite only reads the wired URL at startup — and confirm the [staging banner](#the-staging-banner)'s host matches the other device's address bar.
+
+- **Firewall (Windows):** allow inbound TCP **3000** and **54321**, or the browser loads the page but API calls hang. If needed, in an **Administrator** PowerShell:
+  ```powershell
+  New-NetFirewallRule -DisplayName "Heard dev"     -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3000  -Profile Any
+  New-NetFirewallRule -DisplayName "Heard staging" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 54321 -Profile Any
+  ```
+- **Address changed?** If the machine's IP changes (DHCP lease, VPN re-enrollment), re-wire with the new one and restart the frontend.
+- **Back to this machine only:** `npm run wire:heard` (no flag) → `127.0.0.1`.
+- **Secure-context caveat:** browsers block microphone/camera (`getUserMedia`) over plain HTTP on a non-localhost IP, so Heard's audio "rant" feature won't work on other devices without HTTPS. `localhost` on this host is exempt.
 
 ## Data model primer
 
@@ -358,6 +380,8 @@ localStorage.clear(); location.reload();
 **I imported/copied posts but don't see them in the feed.** The feed only shows rooms that belong to a **public community**. `copy:posts` and `import:polis` create the needed public community automatically, so a reload should show them. If not: hard-refresh (Ctrl+Shift+R); confirm the stack is up; or open the room directly at `http://localhost:3000/room/<roomId>` (direct access ignores the feed filter). The feed is also capped at ~20 rooms sorted by recency.
 
 **`import:polis` fails with HTTP `546`.** The dataset is too big for the clustering step's resource limit. Lower `--max-statements` / `--max-participants` (defaults 80 / 300). If a failed run left a partial/duplicate room, it's the one with no cluster data — re-import at a smaller size.
+
+**On another device the page loads but spins forever / shows no posts.** The frontend is wired to a host that device can't reach — almost always `127.0.0.1` (which means the device *itself*). Check the [staging banner](#the-staging-banner)'s host against the device's address bar; if they differ, re-wire to the address the device uses (`npm run wire:heard -- --host <that-address>`) and **restart Heard's frontend**. If the banner is already correct but calls still hang, it's the [firewall on port 54321](#using-heard-from-other-devices-lan). See [Choosing the host](#wireheard).
 
 **My test posts vanished.** `npm run db:reset` wipes the database. Restore copied posts with `npm run seed:posts` and Polis posts with `npm run import:polis`.
 
